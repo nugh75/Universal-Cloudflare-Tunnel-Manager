@@ -169,3 +169,23 @@ Questo significa che se fermi e riavvii il container `tunnel-manager`, l'applica
     Se l'utente Docker non ha i permessi corretti, potresti vedere errori. Assicurati che l'utente host che esegue i comandi `docker-compose` possa accedere al demone Docker, o che il demone Docker sia configurato per accettare connessioni dal socket come previsto.
 
 ## Struttura del Progetto
+
+our-project-root/
+├── app.py # Script principale Flask
+├── Dockerfile # Istruzioni per costruire l'immagine Docker
+├── docker-compose.yml # Definizione del servizio Docker Compose
+├── requirements.txt # Dipendenze Python
+├── templates/
+│ └── universal.html # Template HTML per l'interfaccia
+└── static/
+└── style.css # Fogli di stile CSS
+
+      
+## Licenza
+
+(Specifica qui la tua licenza, es. MIT, Apache 2.0, o lascia vuoto se non definito)
+
+---
+Spero che questo README sia utile! Puoi personalizzarlo ulteriormente se necessario.
+
+    
