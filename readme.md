@@ -183,9 +183,6 @@ our-project-root/
       
 ## Licenza
 
-(Specifica qui la tua licenza, es. MIT, Apache 2.0, o lascia vuoto se non definito)
-
----
-Spero che questo README sia utile! Puoi personalizzarlo ulteriormente se necessario.
+Gpl3
 
     
