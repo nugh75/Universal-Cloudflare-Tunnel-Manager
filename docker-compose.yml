@@ -1,56 +1,31 @@
-version: '3.8'
+# docker-compose.yml
 
 services:
-  universal-tunnel-manager:
+  tunnel-manager:
     build:
-      context: .
+      context: . # Usa il Dockerfile nella directory corrente (.)
       dockerfile: Dockerfile
-    container_name: universal-tunnel-manager
-    restart: unless-stopped
-    user: root  # Esegui come root per accedere al socket Docker
-    
-    # Porte
+    container_name: cloudflare_tunnel_manager_app # Nome personalizzato per il container
     ports:
-      - "5001:5001"
-    
-    # Variabili di ambiente
-    environment:
-      - FLASK_ENV=production
-      - PYTHONUNBUFFERED=1
-    
-    # Volumi per accedere al Docker daemon dell'host
+      - "5001:5001" # Mappa la porta 5001 dell'host alla porta 5001 del container
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./data:/app/data  # Per eventuali dati persistenti
-    
-    # Network
-    networks:
-      - tunnel-network
-    
-    # Dipendenze (opzionale, se vuoi che sia disponibile dopo altri servizi)
-    # depends_on:
-    #   - your-other-services
-    
-    # Salute del container
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/api/status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    
-    # Labels per organizzazione
-    labels:
-      - "com.docker.compose.project=tunnel-manager"
-      - "description=Universal Tunnel Manager per servizi Docker"
+      # Monta il socket Docker dell'host nel container.
+      # Permette all'applicazione di eseguire comandi `docker ps`, ecc.
+      # ATTENZIONE: Questo dà al container privilegi elevati sull'host Docker.
+      - /var/run/docker.sock:/var/run/docker.sock
 
-# Network personalizzato
-networks:
-  tunnel-network:
-    driver: bridge
-    name: tunnel-manager-network
+      # Volume nominato per rendere persistente la directory /app/data del container.
+      - tunnel_manager_app_data:/app/data
+    environment:
+      # Imposta l'IP locale a cui cloudflared deve puntare per i servizi Docker sull'host.
+      - LOCAL_IP=host.docker.internal
+    restart: unless-stopped # Riavvia il container a meno che non sia stato fermato manualmente
 
-# Volumi per dati persistenti (opzionale)
+    # Per Linux, host.docker.internal potrebbe richiedere questa configurazione
+    # per essere disponibile. Per Docker Desktop (Windows/Mac) è solitamente automatico.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
-  tunnel-data:
-    name: tunnel-manager-data
+  tunnel_manager_app_data: # Definisce il volume nominato per la persistenza dei dati
+    name: tunnel_manager_app_data_volume # Nome esplicito per il volume

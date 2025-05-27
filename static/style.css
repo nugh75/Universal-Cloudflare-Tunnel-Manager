@@ -1,0 +1,223 @@
+/* static/style.css */
+body {
+    font-family: 'Roboto', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f4f6f8;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    background-color: #fff;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+h1, h2 {
+    color: #2c3e50;
+    border-bottom: 2px solid #eaecee;
+    padding-bottom: 10px;
+    margin-top: 0;
+}
+
+h1 {
+    font-size: 1.8em;
+    display: flex;
+    align-items: center;
+}
+
+h1 img {
+    height: 30px;
+    vertical-align: middle;
+    margin-right: 10px;
+}
+
+h2 {
+    font-size: 1.4em;
+    margin-top: 30px;
+}
+
+.service-card {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.service-card h3 {
+    margin-top: 0;
+    font-size: 1.2em;
+    color: #3498db;
+}
+
+.service-info p {
+    font-size: 0.9em;
+    color: #555;
+    margin: 5px 0;
+}
+.service-info strong {
+    color: #333;
+}
+
+.tunnel-actions {
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.tunnel-actions label {
+    font-size: 0.9em;
+    color: #555;
+    margin-right: 5px;
+    display: inline-block; 
+    margin-bottom: 3px;
+}
+
+.tunnel-actions select,
+.tunnel-actions input[type="number"],
+.tunnel-actions button {
+    padding: 9px 14px; 
+    margin-right: 8px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.9em; 
+    background-color: #fff;
+    color: #333;
+    box-sizing: border-box; 
+}
+
+.tunnel-actions input[type="number"] {
+    width: 90px;
+}
+
+.tunnel-actions button {
+    background-color: #3498db;
+    color: white;
+    cursor: pointer;
+    border-color: #3498db;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    font-weight: 500; 
+}
+
+.tunnel-actions button:hover {
+    background-color: #2980b9;
+    border-color: #2980b9;
+}
+
+.tunnel-actions button:disabled {
+    background-color: #bdc3c7;
+    border-color: #bdc3c7;
+    cursor: not-allowed;
+}
+
+
+.tunnel-actions button.stop-button {
+    background-color: #e74c3c;
+    border-color: #e74c3c;
+}
+.tunnel-actions button.stop-button:hover {
+    background-color: #c0392b;
+    border-color: #c0392b;
+}
+.tunnel-actions button.extend-button {
+    background-color: #2ecc71; 
+    border-color: #2ecc71;
+}
+.tunnel-actions button.extend-button:hover {
+    background-color: #27ae60;
+    border-color: #27ae60;
+}
+
+
+.tunnel-url-container { 
+    margin-top: 10px;
+}
+
+.tunnel-url {
+    padding: 10px;
+    background-color: #e8f4fd;
+    border: 1px solid #d1e9fc;
+    border-radius: 4px;
+    word-break: break-all;
+    font-size: 0.95em;
+}
+
+.tunnel-url a {
+    color: #2980b9;
+    text-decoration: none;
+    font-weight: bold;
+}
+.tunnel-url a:hover {
+    text-decoration: underline;
+}
+
+.tunnel-url.loading {
+    background-color: #fffbe6; 
+    border-color: #ffe58f;
+    color: #8a6d3b;
+}
+.tunnel-url.previous {
+    background-color: #f0f0f0; 
+    border-color: #ddd;
+    color: #777;
+}
+.tunnel-url.error-text { /* Aggiunto per testo errore URL */
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+
+
+.expiration-info {
+    font-size: 0.85em;
+    color: #7f8c8d;
+    margin-top: 5px;
+}
+
+.status-message {
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    display: none; 
+}
+.status-message.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+.status-message.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+.status-message.info { 
+    background-color: #e8f4fd;
+    color: #2980b9;
+    border: 1px solid #d1e9fc;
+}
+
+
+#global-actions {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}
+#global-actions button { margin-right: 10px; } 
+
+#info-bar { 
+    margin-bottom: 20px;
+    padding: 10px;
+    background-color: #ecf0f1;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: #34495e;
+}
+#info-bar strong { color: #2c3e50; }
