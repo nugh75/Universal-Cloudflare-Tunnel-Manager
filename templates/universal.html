@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Tunnel Manager - Docker Services</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            color: #333;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+            color: white;
+            padding: 30px 40px;
+            border-radius: 20px;
+            text-align: center;
+            margin-bottom: 30px;
+            box-shadow: 0 24px 48px rgba(0,0,0,0.15);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: shimmer 3s ease-in-out infinite;
+        }
+        
+        @keyframes shimmer {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(180deg); }
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            font-weight: 500;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+            font-weight: 300;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .controls {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1em;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            color: white;
+        }
+        
+        .btn-stop-all {
+            background: linear-gradient(135deg, #f44336 0%, #ef5350 100%);
+        }
+        
+        .btn-stop-all:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(244, 67, 54, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        
+        .service-card {
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .service-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #1976d2 0%, #42a5f5 100%);
+        }
+        
+        .service-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 35px rgba(0,0,0,0.15);
+        }
+        
+        .service-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .service-name {
+            font-size: 1.4em;
+            font-weight: 600;
+            color: #1976d2;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .service-status {
+            padding: 6px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 500;
+            background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+            color: white;
+        }
+        
+        .service-info {
+            margin-bottom: 20px;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        
+        .info-row:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .info-label {
+            color: #666;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .info-value {
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .url-link {
+            color: #1976d2;
+            text-decoration: none;
+            font-weight: 500;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(25, 118, 210, 0.05);
+            transition: all 0.3s ease;
+        }
+        
+        .url-link:hover {
+            background: rgba(25, 118, 210, 0.1);
+            transform: scale(1.02);
+        }
+        
+        .service-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn-small {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95em;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: white;
+        }
+        
+        .btn-start {
+            background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+        }
+        
+        .btn-start:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+        }
+        
+        .btn-stop {
+            background: linear-gradient(135deg, #ff5722 0%, #ff7043 100%);
+        }
+        
+        .btn-stop:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 87, 34, 0.4);
+        }
+        
+        .tunnel-active {
+            background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+            color: white;
+        }
+        
+        .message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 20px;
+            border-radius: 12px;
+            color: white;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            z-index: 1000;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+        }
+        
+        .message.show {
+            transform: translateX(0);
+        }
+        
+        .message-success {
+            background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+        }
+        
+        .message-error {
+            background: linear-gradient(135deg, #f44336 0%, #ef5350 100%);
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .fab {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 8px 25px rgba(25, 118, 210, 0.4);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1000;
+        }
+        
+        .fab:hover {
+            transform: scale(1.1) translateY(-2px);
+            box-shadow: 0 12px 35px rgba(25, 118, 210, 0.6);
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .controls {
+                flex-direction: column;
+                gap: 15px;
+            }
+            
+            .services-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .service-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><span class="material-icons" style="font-size: 0.8em; margin-right: 15px; vertical-align: middle;">hub</span>Universal Tunnel Manager</h1>
+            <div class="subtitle">Gestione Tunnel Cloudflare per tutti i servizi Docker</div>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="total-services">0</div>
+                <div class="stat-label">Servizi Docker Attivi</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="active-tunnels">0</div>
+                <div class="stat-label">Tunnel Attivi</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="stop-all-btn" class="btn btn-stop-all" onclick="stopAllTunnels()">
+                <span class="material-icons">stop</span>
+                Ferma Tutti i Tunnel
+            </button>
+        </div>
+        
+        <div id="services-container" class="services-grid">
+            <!-- I servizi verranno caricati qui dinamicamente -->
+        </div>
+    </div>
+    
+    <button class="fab" onclick="updateStatus()" title="Aggiorna stato">
+        <span class="material-icons">refresh</span>
+    </button>
+    
+    <div id="message" class="message" style="display: none;"></div>
+
+    <script>
+        let updateInterval;
+        
+        function updateStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    updateStats(data);
+                    updateServicesGrid(data.services);
+                })
+                .catch(error => {
+                    console.error('Errore nel recupero dello stato:', error);
+                });
+        }
+        
+        function updateStats(data) {
+            document.getElementById('total-services').textContent = data.services.length;
+            document.getElementById('active-tunnels').textContent = data.active_tunnels_count;
+        }
+        
+        function updateServicesGrid(services) {
+            const container = document.getElementById('services-container');
+            
+            if (services.length === 0) {
+                container.innerHTML = `
+                    <div style="grid-column: 1 / -1; text-align: center; padding: 50px;">
+                        <span class="material-icons" style="font-size: 4em; color: #ccc; margin-bottom: 20px;">inbox</span>
+                        <h3 style="color: #666;">Nessun servizio Docker attivo trovato</h3>
+                        <p style="color: #999; margin-top: 10px;">Avvia alcuni container Docker per iniziare</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = services.map(service => `
+                <div class="service-card ${service.tunnel_active ? 'tunnel-active' : ''}">
+                    <div class="service-header">
+                        <div class="service-name">
+                            <span class="material-icons">memory</span>
+                            ${service.name}
+                        </div>
+                        <div class="service-status">Attivo</div>
+                    </div>
+                    
+                    <div class="service-info">
+                        <div class="info-row">
+                            <span class="info-label">
+                                <span class="material-icons">image</span>
+                                Immagine
+                            </span>
+                            <span class="info-value">${service.image}</span>
+                        </div>
+                        
+                        <div class="info-row">
+                            <span class="info-label">
+                                <span class="material-icons">settings_ethernet</span>
+                                Porte
+                            </span>
+                            <span class="info-value">${service.ports.join(', ')}</span>
+                        </div>
+                        
+                        ${service.tunnel_url ? `
+                        <div class="info-row">
+                            <span class="info-label">
+                                <span class="material-icons">public</span>
+                                URL Tunnel
+                            </span>
+                            <span class="info-value">
+                                <a href="${service.tunnel_url}" target="_blank" class="url-link">${service.tunnel_url}</a>
+                            </span>
+                        </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="service-actions">
+                        ${service.ports.map(port => `
+                            ${service.tunnel_active ? `
+                                <button class="btn-small btn-stop" onclick="stopTunnel('${service.name}')">
+                                    <span class="material-icons">stop</span>
+                                    Ferma Tunnel
+                                </button>
+                            ` : `
+                                <button class="btn-small btn-start" onclick="startTunnel('${service.name}', ${port})">
+                                    <span class="material-icons">play_arrow</span>
+                                    Tunnel :${port}
+                                </button>
+                            `}
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('message');
+            const icon = type === 'success' ? 'check_circle' : 'error';
+            messageDiv.innerHTML = `<span class="material-icons">${icon}</span>${text}`;
+            messageDiv.className = `message message-${type}`;
+            messageDiv.style.display = 'flex';
+            messageDiv.classList.add('show');
+            
+            setTimeout(() => {
+                messageDiv.classList.remove('show');
+                setTimeout(() => {
+                    messageDiv.style.display = 'none';
+                }, 300);
+            }, 5000);
+        }
+        
+        function startTunnel(serviceName, port) {
+            showMessage(`Avvio tunnel per ${serviceName}:${port}...`, 'success');
+            
+            fetch('/api/start-tunnel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service_name: serviceName, port: port })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage(`Tunnel avviato per ${serviceName}!`, 'success');
+                } else {
+                    showMessage(`Errore: ${data.message}`, 'error');
+                }
+                updateStatus();
+            })
+            .catch(error => {
+                showMessage('Errore di connessione', 'error');
+            });
+        }
+        
+        function stopTunnel(serviceName) {
+            fetch('/api/stop-tunnel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service_name: serviceName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage(`Tunnel fermato per ${serviceName}`, 'success');
+                } else {
+                    showMessage(`Errore: ${data.message}`, 'error');
+                }
+                updateStatus();
+            })
+            .catch(error => {
+                showMessage('Errore di connessione', 'error');
+            });
+        }
+        
+        function stopAllTunnels() {
+            const btn = document.getElementById('stop-all-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>Fermando tutti...';
+            
+            fetch('/api/stop-all', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage('Tutti i tunnel fermati!', 'success');
+                    } else {
+                        showMessage(`Errore: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showMessage('Errore di connessione', 'error');
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="material-icons">stop</span>Ferma Tutti i Tunnel';
+                    updateStatus();
+                });
+        }
+        
+        // Aggiorna lo stato ogni 5 secondi
+        updateStatus();
+        updateInterval = setInterval(updateStatus, 5000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  universal-tunnel-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: universal-tunnel-manager
+    restart: unless-stopped
+    user: root  # Esegui come root per accedere al socket Docker
+    
+    # Porte
+    ports:
+      - "5001:5001"
+    
+    # Variabili di ambiente
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    
+    # Volumi per accedere al Docker daemon dell'host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data:/app/data  # Per eventuali dati persistenti
+    
+    # Network
+    networks:
+      - tunnel-network
+    
+    # Dipendenze (opzionale, se vuoi che sia disponibile dopo altri servizi)
+    # depends_on:
+    #   - your-other-services
+    
+    # Salute del container
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Labels per organizzazione
+    labels:
+      - "com.docker.compose.project=tunnel-manager"
+      - "description=Universal Tunnel Manager per servizi Docker"
+
+# Network personalizzato
+networks:
+  tunnel-network:
+    driver: bridge
+    name: tunnel-manager-network
+
+# Volumi per dati persistenti (opzionale)
+volumes:
+  tunnel-data:
+    name: tunnel-manager-data

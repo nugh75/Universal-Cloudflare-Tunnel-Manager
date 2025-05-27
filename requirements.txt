@@ -1,0 +1,4 @@
+flask==2.3.3
+psutil==5.9.5
+requests==2.31.0
+werkzeug==2.3.7

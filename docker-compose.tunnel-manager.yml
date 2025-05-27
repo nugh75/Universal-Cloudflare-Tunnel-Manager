@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  universal-tunnel-manager:
+    build:
+      context: /home/nugh75/Git/interface
+      dockerfile: Dockerfile
+    container_name: universal-tunnel-manager
+    restart: unless-stopped
+    user: root  # Esegui come root per accedere al socket Docker
+    
+    # Porte
+    ports:
+      - "5001:5001"
+    
+    # Variabili di ambiente
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - LOCAL_IP=172.17.0.1  # IP del Docker host nella rete bridge predefinita
+    
+    # Volumi per accedere al Docker daemon dell'host e ai dati persistenti
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./tunnel-manager-data:/app/data
+    
+    # Network - usiamo la rete esistente
+    network_mode: "bridge"
+    
+    # Dipendenze (se necessario collegare con altri servizi)
+    # depends_on:
+    #   - servizio-dipendente
+    
+    # Salute del container
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Labels per organizzazione
+    labels:
+      - "com.docker.compose.project=tunnel-manager"
+      - "description=Universal Tunnel Manager integrato con l'infrastruttura esistente"
+      - "traefik.enable=true"  # Solo se si usa Traefik come reverse proxy
+
+# Non è necessario definire networks quando si usa network_mode: "bridge"
