@@ -22,8 +22,8 @@ L'Universal Cloudflare Tunnel Manager è un'applicazione web che semplifica la c
 
 1. **Clona il repository:**
    ```bash
-   git clone <URL_REPOSITORY>
-   cd interface
+   git clone https://github.com/nugh75/Universal-Cloudflare-Tunnel-Manager.git
+   cd Universal-Cloudflare-Tunnel-Manager
    ```
 
 2. **Crea e attiva virtual environment:**
@@ -55,8 +55,8 @@ L'Universal Cloudflare Tunnel Manager è un'applicazione web che semplifica la c
 
 1. **Clona il repository:**
    ```bash
-   git clone <URL_REPOSITORY>
-   cd interface
+   git clone https://github.com/nugh75/Universal-Cloudflare-Tunnel-Manager.git
+   cd Universal-Cloudflare-Tunnel-Manager
    ```
 
 2. **Avvia con Docker Compose:**
