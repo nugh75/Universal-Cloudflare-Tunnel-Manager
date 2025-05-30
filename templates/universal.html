@@ -13,7 +13,10 @@
         
         <div id="info-bar">
             IP Locale Rilevato: <strong id="detected-ip">Caricamento...</strong> | 
-            Default Durata Tunnel: <strong id="default-duration">N/A</strong> ore
+            Default Durata Tunnel: <strong id="default-duration">N/A</strong> ore |
+            <span id="admin-status">
+                <span id="admin-indicator" class="admin-status-badge">🔒 Admin: Non configurato</span>
+            </span>
         </div>
 
         <div id="global-actions">
@@ -27,6 +30,25 @@
         <h2>Servizi Docker Disponibili</h2>
         <div id="services-list">
             <p>Caricamento servizi...</p>
+        </div>
+    </div>
+
+    <!-- Dialog per password sudo -->
+    <div id="sudo-password-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔐 Autenticazione Sudo Richiesta</h3>
+                <span class="close" onclick="closeSudoModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>Per gestire i Named Tunnels è necessaria la password sudo:</p>
+                <input type="password" id="sudo-password-input" placeholder="Inserisci password sudo" style="width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                <div id="sudo-error-message" class="error-message" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="submitSudoPassword()" class="primary-button">Conferma</button>
+                <button onclick="closeSudoModal()" class="secondary-button">Annulla</button>
+            </div>
         </div>
     </div>
 
@@ -83,6 +105,9 @@
                     $('#detected-ip').text(data.local_ip || 'Non rilevato');
                     $('#default-duration').text(data.default_tunnel_duration_hours || 'N/A');
                     
+                    // Aggiorna indicatore stato amministratore
+                    updateAdminStatus(data.sudo_available, data.admin_required);
+                    
                     const $servicesList = $('#services-list');
                     
                     // Determina quali servizi aggiornare
@@ -119,8 +144,14 @@
                             const configuredTunnel = data.active_tunnels.find(t => t.service_name === service.name);
 
                             if (activeTunnel) {
+                                // Determina il tipo di tunnel e il badge appropriato
+                                const tunnelType = activeTunnel.tunnel_type || 'quick';
+                                const badgeClass = tunnelType === 'named' ? 'permanent' : 'temporary';
+                                const badgeText = tunnelType === 'named' ? 'PERMANENTE' : 'TEMPORANEO';
+                                const tunnelUrlClass = tunnelType === 'named' ? 'tunnel-url named' : 'tunnel-url';
+                                
                                 if (activeTunnel.url && activeTunnel.url !== "Ricerca URL fallita") {
-                                    tunnelDisplayHtml += `<div class="tunnel-url">URL: <a href="${activeTunnel.url}" target="_blank">${activeTunnel.url}</a></div>`;
+                                    tunnelDisplayHtml += `<div class="${tunnelUrlClass}">URL: <a href="${activeTunnel.url}" target="_blank">${activeTunnel.url}</a><span class="tunnel-badge ${badgeClass}">${badgeText}</span></div>`;
                                     if (pendingTunnels[service.name]) {
                                         clearInterval(pendingTunnels[service.name].intervalId);
                                         delete pendingTunnels[service.name];
@@ -133,17 +164,29 @@
                                         startUrlPolling(service.name);
                                     }
                                 }
-                                if (activeTunnel.expiration_time) {
+                                // Mostra scadenza solo per Quick Tunnels
+                                if (activeTunnel.expiration_time && tunnelType === 'quick') {
                                     const expirationDate = new Date(activeTunnel.expiration_time * 1000).toLocaleString('it-IT');
                                     const timeRemaining = formatTimeRemaining(activeTunnel.time_remaining_seconds);
                                     tunnelDisplayHtml += `<div class="expiration-info">Scade: ${expirationDate} (Riman.: ${timeRemaining})</div>`;
+                                } else if (tunnelType === 'named') {
+                                    tunnelDisplayHtml += `<div class="expiration-info">✅ Tunnel permanente - nessuna scadenza</div>`;
                                 }
-                                actionsHtml = `
-                                    <label for="duration-${service.name}-extend">Estendi (ore):</label>
-                                    <input type="number" id="duration-${service.name}-extend" min="0.1" step="0.1" placeholder="${data.default_tunnel_duration_hours}">
-                                    <button class="extend-button" onclick="startTunnel('${service.name}', true, ${activeTunnel.port})">Estendi</button>
-                                    <button class="stop-button" onclick="stopTunnel('${service.name}')">Ferma</button>
-                                `;
+                                
+                                // Azioni diverse per Quick e Named Tunnels
+                                if (tunnelType === 'quick') {
+                                    actionsHtml = `
+                                        <label for="duration-${service.name}-extend">Estendi (ore):</label>
+                                        <input type="number" id="duration-${service.name}-extend" min="0.1" step="0.1" placeholder="${data.default_tunnel_duration_hours}">
+                                        <button class="extend-button" onclick="startTunnel('${service.name}', true, ${activeTunnel.port})">Estendi</button>
+                                        <button class="stop-button" onclick="stopTunnel('${service.name}')">Ferma</button>
+                                    `;
+                                } else {
+                                    actionsHtml = `
+                                        <p><strong>Named Tunnel attivo</strong> - Dominio: ${activeTunnel.custom_domain || 'N/A'}</p>
+                                        <button class="stop-button" onclick="stopTunnel('${service.name}')">Disconnetti Servizio</button>
+                                    `;
+                                }
                             } else {
                                 if (pendingTunnels[service.name]) {
                                     clearInterval(pendingTunnels[service.name].intervalId);
@@ -151,10 +194,26 @@
                                     console.log(`Tunnel ${service.name} non più attivo/trovato, polling interrotto.`);
                                 }
                                 actionsHtml = `
-                                    <label for="port-${service.name}">Porta:</label>
-                                    <select id="port-${service.name}" ${service.ports && service.ports.length > 0 ? '' : 'disabled'}>${portsOptions}</select>
-                                    <label for="duration-${service.name}">Durata (ore):</label>
-                                    <input type="number" id="duration-${service.name}" min="0.1" step="0.1" placeholder="${data.default_tunnel_duration_hours}">
+                                    <div class="tunnel-type-selector">
+                                        <label><input type="radio" name="tunnel-type-${service.name}" value="quick" checked onchange="toggleTunnelOptions('${service.name}')"> Quick Tunnel (temporaneo)</label>
+                                        <label><input type="radio" name="tunnel-type-${service.name}" value="named" onchange="toggleTunnelOptions('${service.name}')"> Named Tunnel (dominio personalizzato)</label>
+                                    </div>
+                                    <div class="tunnel-options" id="tunnel-options-${service.name}">
+                                        <div class="quick-options" id="quick-options-${service.name}">
+                                            <label for="port-${service.name}">Porta:</label>
+                                            <select id="port-${service.name}" ${service.ports && service.ports.length > 0 ? '' : 'disabled'}>${portsOptions}</select>
+                                            <label for="duration-${service.name}">Durata (ore):</label>
+                                            <input type="number" id="duration-${service.name}" min="0.1" step="0.1" placeholder="${data.default_tunnel_duration_hours}">
+                                        </div>
+                                        <div class="named-options" id="named-options-${service.name}" style="display: none;">
+                                            <label for="named-port-${service.name}">Porta:</label>
+                                            <select id="named-port-${service.name}" ${service.ports && service.ports.length > 0 ? '' : 'disabled'}>${portsOptions}</select>
+                                            <label for="custom-domain-${service.name}">Dominio:</label>
+                                            <select id="custom-domain-${service.name}">
+                                                <option value="">Caricamento domini...</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                     <button onclick="startTunnel('${service.name}', false)" ${service.ports && service.ports.length > 0 ? '' : 'disabled'}>Avvia Tunnel</button>
                                 `;
                                 if (configuredTunnel && configuredTunnel.url && configuredTunnel.url !== "Ricerca URL fallita") {
@@ -230,29 +289,51 @@
         window.startTunnel = function(serviceName, isExtension = false, currentPortForExtension = null) {
             let portVal;
             let durationInputId;
+            let tunnelType = 'quick'; // Default per estensioni
+            let customDomain = null;
             let typeMessage = isExtension ? "Estensione durata" : "Avvio tunnel";
 
             if (isExtension) {
                 portVal = currentPortForExtension;
                 durationInputId = `duration-${serviceName}-extend`;
             } else {
-                portVal = $(`#port-${serviceName}`).val();
-                durationInputId = `duration-${serviceName}`;
-                if (!portVal && !$(`#port-${serviceName}`).prop('disabled')) {
+                // Determina il tipo di tunnel selezionato
+                tunnelType = $(`input[name="tunnel-type-${serviceName}"]:checked`).val() || 'quick';
+                
+                if (tunnelType === 'quick') {
+                    portVal = $(`#port-${serviceName}`).val();
+                    durationInputId = `duration-${serviceName}`;
+                } else if (tunnelType === 'named') {
+                    portVal = $(`#named-port-${serviceName}`).val();
+                    customDomain = $(`#custom-domain-${serviceName}`).val();
+                    
+                    if (!customDomain) {
+                        showCardMessage(serviceName, 'Seleziona un dominio per il Named Tunnel.', 'error');
+                        return;
+                    }
+                }
+                
+                if (!portVal && !$(`#port-${serviceName}`).prop('disabled') && !$(`#named-port-${serviceName}`).prop('disabled')) {
                     showCardMessage(serviceName, 'Seleziona una porta per avviare il tunnel.', 'error');
                     return;
                 }
             }
+            
             showCardMessage(serviceName, `${typeMessage} per ${serviceName}...`, 'info', false);
             
             let durationHours = $(`#${durationInputId}`).val();
             const payload = {
                 service_name: serviceName,
-                port: parseInt(portVal)
+                port: parseInt(portVal),
+                tunnel_type: tunnelType
             };
 
             if (durationHours && parseFloat(durationHours) > 0) {
                 payload.duration_hours = parseFloat(durationHours);
+            }
+            
+            if (customDomain) {
+                payload.custom_domain = customDomain;
             }
 
             console.log(`${typeMessage} payload:`, payload);
@@ -342,8 +423,162 @@
             loadStatus(); 
         });
 
+        // Funzione per gestire il toggle tra opzioni Quick e Named Tunnel
+        window.toggleTunnelOptions = function(serviceName) {
+            const tunnelType = $(`input[name="tunnel-type-${serviceName}"]:checked`).val();
+            const quickOptions = $(`#quick-options-${serviceName}`);
+            const namedOptions = $(`#named-options-${serviceName}`);
+            
+            if (tunnelType === 'quick') {
+                quickOptions.show();
+                namedOptions.hide();
+            } else if (tunnelType === 'named') {
+                quickOptions.hide();
+                namedOptions.show();
+                // Carica i domini disponibili quando viene selezionato Named Tunnel
+                loadAvailableDomains(serviceName);
+                // Verifica se la password sudo è disponibile
+                checkSudoStatus();
+            }
+        };
+
+        // Gestione modal password sudo
+        window.showSudoModal = function() {
+            $('#sudo-password-modal').show();
+            $('#sudo-password-input').focus();
+        };
+
+        window.closeSudoModal = function() {
+            $('#sudo-password-modal').hide();
+            $('#sudo-password-input').val('');
+            $('#sudo-error-message').hide();
+        };
+
+        window.submitSudoPassword = function() {
+            const password = $('#sudo-password-input').val();
+            if (!password) {
+                $('#sudo-error-message').text('Inserisci la password').show();
+                return;
+            }
+
+            $.ajax({
+                url: '/api/set-sudo-password',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({password: password}),
+                success: function(response) {
+                    if (response.success) {
+                        closeSudoModal();
+                        showGlobalMessage('Password sudo impostata con successo', 'success');
+                        // Ricarica lo stato per aggiornare i Named Tunnels
+                        loadStatus();
+                    } else {
+                        $('#sudo-error-message').text(response.message || 'Password non valida').show();
+                    }
+                },
+                error: function(xhr, status, error) {
+                    const errorMsg = xhr.responseJSON ? xhr.responseJSON.message : 'Errore di connessione';
+                    $('#sudo-error-message').text(errorMsg).show();
+                }
+            });
+        };
+
+        // Aggiorna l'indicatore di stato amministratore
+        function updateAdminStatus(sudoAvailable, adminRequired) {
+            const adminIndicator = $('#admin-indicator');
+            if (sudoAvailable) {
+                adminIndicator.text('🔓 Admin: Configurato')
+                             .removeClass('admin-not-configured admin-required')
+                             .addClass('admin-configured');
+            } else if (adminRequired) {
+                adminIndicator.text('🔒 Admin: Richiesto')
+                             .removeClass('admin-configured admin-not-configured')
+                             .addClass('admin-required');
+            } else {
+                adminIndicator.text('🔒 Admin: Non configurato')
+                             .removeClass('admin-configured admin-required')
+                             .addClass('admin-not-configured');
+            }
+        }
+
+        // Carica domini disponibili per Named Tunnels
+        function loadAvailableDomains(serviceName) {
+            $.ajax({
+                url: '/api/named-tunnels/domains',
+                type: 'GET',
+                success: function(response) {
+                    const domainSelect = $(`#custom-domain-${serviceName}`);
+                    domainSelect.empty();
+                    
+                    if (response.success && response.domains && response.domains.length > 0) {
+                        domainSelect.append('<option value="">Seleziona dominio...</option>');
+                        response.domains.forEach(function(domain) {
+                            domainSelect.append(`<option value="${domain.hostname}">${domain.hostname}</option>`);
+                        });
+                    } else {
+                        domainSelect.append('<option value="">Nessun dominio disponibile</option>');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Errore nel caricamento domini:', error);
+                    const domainSelect = $(`#custom-domain-${serviceName}`);
+                    domainSelect.empty();
+                    domainSelect.append('<option value="">Errore caricamento domini</option>');
+                }
+            });
+        }
+
+        // Verifica stato sudo e richiede password se necessario
+        function checkSudoStatusAndPrompt() {
+            $.ajax({
+                url: '/api/sudo-status',
+                type: 'GET',
+                success: function(response) {
+                    if (!response.sudo_available) {
+                        // Mostra automaticamente il modal per richiedere la password
+                        setTimeout(function() {
+                            showSudoModal();
+                        }, 1000); // Piccolo delay per far caricare la pagina
+                    }
+                },
+                error: function() {
+                    console.log('Errore nel controllo stato sudo all\'avvio');
+                }
+            });
+        }
+
+        // Verifica stato sudo (usato quando si seleziona Named Tunnel)
+        function checkSudoStatus() {
+            $.ajax({
+                url: '/api/sudo-status',
+                type: 'GET',
+                success: function(response) {
+                    if (!response.sudo_available) {
+                        showSudoModal();
+                    }
+                },
+                error: function() {
+                    console.log('Errore nel controllo stato sudo');
+                }
+            });
+        }
+
+        // Event listener per Enter nel campo password
         $(document).ready(function() {
+            $('#sudo-password-input').keypress(function(e) {
+                if (e.which == 13) { // Enter key
+                    submitSudoPassword();
+                }
+            });
+        });
+
+        $(document).ready(function() {
+            // Carica lo stato iniziale
             loadStatus(); 
+            
+            // Controlla automaticamente se serve la password sudo all'avvio
+            checkSudoStatusAndPrompt();
+            
             setInterval(function() { 
                 if (Object.keys(pendingTunnels).length === 0) { 
                     // console.log("Aggiornamento periodico leggero dello stato...");

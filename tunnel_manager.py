@@ -9,26 +9,70 @@ import re
 import time
 import json
 import os
+import yaml
+import shutil
 from flask import Flask, render_template, jsonify, request
 import threading
 import socket
 from datetime import datetime, timedelta # Aggiunto per la scadenza
+from pathlib import Path
 
 app = Flask(__name__)
 
+# Gestione password sudo
+sudo_password = None
+
+def set_sudo_password(password):
+    """Imposta la password sudo per le operazioni successive"""
+    global sudo_password
+    sudo_password = password
+
+def run_sudo_command(cmd, password=None):
+    """Esegue un comando sudo con password"""
+    global sudo_password
+    if password:
+        sudo_password = password
+    
+    if not sudo_password:
+        return None, "Password sudo richiesta"
+    
+    try:
+        # Usa echo per passare la password a sudo
+        echo_cmd = f"echo '{sudo_password}' | sudo -S {' '.join(cmd[1:])}"
+        result = subprocess.run(echo_cmd, shell=True, capture_output=True, text=True, timeout=10)
+        return result, None
+    except subprocess.TimeoutExpired:
+        return None, "Timeout comando sudo"
+    except Exception as e:
+        return None, f"Errore esecuzione comando: {str(e)}"
+
 DEFAULT_TUNNEL_DURATION_HOURS = 48 # Ore
+
+# Configurazioni per Named Tunnels
+CLOUDFLARED_CONFIG_PATH = "/etc/cloudflared/config.yml"
+CLOUDFLARED_CREDENTIALS_DIR = "/home/nugh75/.cloudflared"
+NAMED_TUNNEL_BACKUP_DIR = "/home/nugh75/Git/interface/tunnel-manager-data/named-tunnel-backups"
 
 class UniversalTunnelManager:
     def __init__(self):
-        self.active_tunnels = {}  # {service_name: {'process': process, 'url': url, 'port': port, 'expiration_time': timestamp}}
+        self.active_tunnels = {}  # {service_name: {'process': process, 'url': url, 'port': port, 'expiration_time': timestamp, 'tunnel_type': 'quick'|'named'}}
         self.local_ip = self.get_local_ip()
         script_dir = os.path.dirname(os.path.abspath(__file__))
         self.data_dir = os.path.join(script_dir, "data")
         self.config_file = os.path.join(self.data_dir, "tunnel_config.json")
         
+        # Inizializzazione Named Tunnels - prima inizializza le variabili
+        self.named_tunnel_domains = {}  # Cache per domini personalizzati {service_name: domain}
+        os.makedirs(NAMED_TUNNEL_BACKUP_DIR, exist_ok=True)
+        # Poi carica la configurazione
+        self.named_tunnel_config = self.load_named_tunnel_config()
+        
         os.makedirs(self.data_dir, exist_ok=True)
         self.load_config_and_restore_expirations() # Modificato per ripristinare le scadenze
         self.clean_invalid_urls_from_config_file()
+        
+        # Rilevamento automatico Named Tunnels attivi
+        self.detect_active_named_tunnels()
 
         # Thread per il controllo delle scadenze
         self.shutdown_event = threading.Event()
@@ -100,6 +144,275 @@ class UniversalTunnelManager:
 
         except Exception as e:
             print(f"Errore nel caricamento della configurazione: {e}")
+
+    def load_named_tunnel_config(self):
+        """Carica la configurazione dei Named Tunnels da config.yml"""
+        try:
+            if os.path.exists(CLOUDFLARED_CONFIG_PATH):
+                with open(CLOUDFLARED_CONFIG_PATH, 'r') as f:
+                    config = yaml.safe_load(f)
+                print(f"✅ Configurazione Named Tunnel caricata da {CLOUDFLARED_CONFIG_PATH}")
+                
+                # Estrai informazioni sui domini configurati
+                if 'ingress' in config:
+                    for rule in config['ingress']:
+                        if 'hostname' in rule and 'service' in rule:
+                            hostname = rule['hostname']
+                            service_url = rule['service']
+                            # Estrai porta dal service URL (es: http://192.168.129.14:7860 -> 7860)
+                            port_match = re.search(r':(\d+)$', service_url)
+                            if port_match:
+                                port = int(port_match.group(1))
+                                # Cerca di mappare alla porta dei servizi Docker
+                                self.named_tunnel_domains[hostname] = {
+                                    'hostname': hostname,
+                                    'service_url': service_url,
+                                    'port': port
+                                }
+                                print(f"🌐 Dominio configurato: {hostname} -> {service_url}")
+                
+                return config
+            else:
+                print(f"⚠️ File configurazione Named Tunnel non trovato: {CLOUDFLARED_CONFIG_PATH}")
+                return None
+        except Exception as e:
+            print(f"❌ Errore nel caricamento configurazione Named Tunnel: {e}")
+            return None
+
+    def save_named_tunnel_config(self, config):
+        """Salva la configurazione dei Named Tunnels con backup"""
+        global sudo_password
+        try:
+            if not sudo_password:
+                print("❌ Password sudo richiesta per salvare la configurazione")
+                return False
+            
+            # Crea backup della configurazione esistente
+            if os.path.exists(CLOUDFLARED_CONFIG_PATH):
+                backup_filename = f"config_backup_{int(time.time())}.yml"
+                backup_path = os.path.join(NAMED_TUNNEL_BACKUP_DIR, backup_filename)
+                
+                # Usa sudo per copiare il file di configurazione nel backup
+                copy_result, error = run_sudo_command(["sudo", "cp", CLOUDFLARED_CONFIG_PATH, backup_path])
+                if error:
+                    print(f"⚠️ Errore nel backup: {error}")
+                    if "password" in error.lower():
+                        sudo_password = None
+                        return False
+                else:
+                    print(f"💾 Backup configurazione salvato: {backup_path}")
+            
+            # Crea un file temporaneo con la nuova configurazione
+            temp_file = "/tmp/cloudflared_config_temp.yml"
+            with open(temp_file, 'w') as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            
+            # Usa sudo per spostare il file temporaneo nella posizione finale
+            move_result, error = run_sudo_command(["sudo", "mv", temp_file, CLOUDFLARED_CONFIG_PATH])
+            if error:
+                print(f"❌ Errore nel salvataggio: {error}")
+                if "password" in error.lower():
+                    sudo_password = None
+                    return False
+                # Pulisci il file temporaneo se il move fallisce
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+                return False
+            
+            print(f"✅ Configurazione Named Tunnel salvata: {CLOUDFLARED_CONFIG_PATH}")
+            
+            # Aggiorna la cache locale
+            self.named_tunnel_config = config
+            return True
+        except Exception as e:
+            print(f"❌ Errore nel salvataggio configurazione Named Tunnel: {e}")
+            return False
+
+    def get_available_named_domains(self):
+        """Restituisce i domini disponibili per Named Tunnels"""
+        domains = []
+        if self.named_tunnel_config and 'ingress' in self.named_tunnel_config:
+            for rule in self.named_tunnel_config['ingress']:
+                if 'hostname' in rule:
+                    hostname = rule['hostname']
+                    service_url = rule.get('service', '')
+                    # Estrai porta dal service URL
+                    port_match = re.search(r':(\d+)$', service_url)
+                    current_port = int(port_match.group(1)) if port_match else None
+                    
+                    domains.append({
+                        'hostname': hostname,
+                        'current_service_url': service_url,
+                        'current_port': current_port,
+                        'available': True
+                    })
+        return domains
+
+    def update_named_tunnel_ingress(self, hostname, new_port):
+        """Aggiorna la configurazione ingress per un hostname specifico"""
+        try:
+            if not self.named_tunnel_config:
+                print("❌ Nessuna configurazione Named Tunnel disponibile")
+                return False
+            
+            new_service_url = f"http://{self.local_ip}:{new_port}"
+            updated = False
+            
+            if 'ingress' in self.named_tunnel_config:
+                for rule in self.named_tunnel_config['ingress']:
+                    if rule.get('hostname') == hostname:
+                        old_service_url = rule.get('service', '')
+                        rule['service'] = new_service_url
+                        print(f"🔄 Aggiornato {hostname}: {old_service_url} -> {new_service_url}")
+                        updated = True
+                        break
+            
+            if updated:
+                return self.save_named_tunnel_config(self.named_tunnel_config)
+            else:
+                print(f"❌ Hostname {hostname} non trovato nella configurazione")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Errore nell'aggiornamento configurazione ingress: {e}")
+            return False
+
+    def restart_named_tunnel(self):
+        """Riavvia il Named Tunnel per applicare le modifiche alla configurazione"""
+        global sudo_password
+        try:
+            if not sudo_password:
+                return False, "Password sudo richiesta"
+                
+            print("🔄 Riavvio Named Tunnel per applicare le modifiche...")
+            
+            # Ferma il tunnel esistente
+            stop_result, error = run_sudo_command(["sudo", "systemctl", "stop", "cloudflared"])
+            if error:
+                print(f"⚠️ Errore nel fermare cloudflared: {error}")
+                if "password" in error.lower():
+                    sudo_password = None  # Reset password se non valida
+                    return False, "Password sudo non valida"
+            
+            time.sleep(2)  # Aspetta che il servizio si fermi
+            
+            # Riavvia il tunnel
+            start_result, error = run_sudo_command(["sudo", "systemctl", "start", "cloudflared"])
+            if error:
+                print(f"❌ Errore nel riavviare cloudflared: {error}")
+                if "password" in error.lower():
+                    sudo_password = None  # Reset password se non valida
+                    return False, "Password sudo non valida"
+                return False, f"Errore riavvio: {error}"
+            
+            if start_result and start_result.returncode == 0:
+                print("✅ Named Tunnel riavviato con successo")
+                return True, "Named Tunnel riavviato con successo"
+            else:
+                error_msg = start_result.stderr if start_result else "Errore sconosciuto"
+                print(f"❌ Errore nel riavviare cloudflared: {error_msg}")
+                return False, f"Errore riavvio: {error_msg}"
+                
+        except Exception as e:
+            print(f"❌ Errore nel riavvio Named Tunnel: {e}")
+            return False, f"Errore: {str(e)}"
+
+    def get_named_tunnel_status(self):
+        """Verifica lo stato del Named Tunnel"""
+        global sudo_password
+        try:
+            if not sudo_password:
+                return {
+                    'is_active': False,
+                    'status': 'auth_required',
+                    'details': 'Password sudo richiesta per verificare lo stato'
+                }
+            
+            # Controlla lo stato del servizio systemd
+            status_result, error = run_sudo_command(["sudo", "systemctl", "is-active", "cloudflared"])
+            if error:
+                if "password" in error.lower():
+                    sudo_password = None  # Reset password se non valida
+                    return {
+                        'is_active': False,
+                        'status': 'auth_required',
+                        'details': 'Password sudo non valida'
+                    }
+                return {
+                    'is_active': False,
+                    'status': 'error',
+                    'details': error
+                }
+            
+            is_active = status_result.stdout.strip() == "active" if status_result else False
+            
+            # Ottieni informazioni dettagliate
+            detail_result, detail_error = run_sudo_command(["sudo", "systemctl", "status", "cloudflared", "--no-pager"])
+            
+            return {
+                'is_active': is_active,
+                'status': status_result.stdout.strip() if status_result else 'unknown',
+                'details': detail_result.stdout if detail_result and detail_result.returncode == 0 else (detail_result.stderr if detail_result else detail_error)
+            }
+        except Exception as e:
+            print(f"❌ Errore nel controllo stato Named Tunnel: {e}")
+            return {
+                'is_active': False,
+                'status': 'error',
+                'details': str(e)
+            }
+
+    def detect_active_named_tunnels(self):
+        """Rileva automaticamente i Named Tunnels attivi e li aggiunge ai tunnel attivi"""
+        try:
+            named_status = self.get_named_tunnel_status()
+            if named_status.get('is_active', False):
+                print("🔍 Named Tunnel attivo rilevato, mappatura servizi...")
+                
+                # Mappa i domini ai servizi attivi in base alle porte
+                if self.named_tunnel_config and 'ingress' in self.named_tunnel_config:
+                    for rule in self.named_tunnel_config['ingress']:
+                        if 'hostname' in rule and 'service' in rule:
+                            hostname = rule['hostname']
+                            service_url = rule['service']
+                            
+                            # Estrai porta dal service URL
+                            port_match = re.search(r':(\d+)$', service_url)
+                            if port_match:
+                                port = int(port_match.group(1))
+                                
+                                # Cerca un servizio Docker che usa questa porta
+                                docker_services = self.get_docker_services()
+                                matching_service = None
+                                for service in docker_services:
+                                    if port in service.get('ports', []):
+                                        matching_service = service['name']
+                                        break
+                                
+                                # Se trovato un servizio corrispondente, aggiungilo ai tunnel attivi
+                                if matching_service:
+                                    self.active_tunnels[matching_service] = {
+                                        'process': None,  # Named tunnel gestito da systemd
+                                        'url': f"https://{hostname}",
+                                        'port': port,
+                                        'local_url': service_url,
+                                        'start_time': time.time(),
+                                        'expiration_time': None,  # Named Tunnels non scadono
+                                        'tunnel_type': 'named',
+                                        'custom_domain': hostname
+                                    }
+                                    print(f"✅ Named Tunnel mappato: {matching_service} -> {hostname} (porta {port})")
+                                else:
+                                    print(f"⚠️ Nessun servizio Docker trovato per porta {port} ({hostname})")
+                            
+                print(f"🎯 Named Tunnels rilevati: {len([t for t in self.active_tunnels.values() if t.get('tunnel_type') == 'named'])}")
+            else:
+                print("ℹ️ Nessun Named Tunnel attivo rilevato")
+                
+        except Exception as e:
+            print(f"⚠️ Errore nel rilevamento Named Tunnels attivi: {e}")
 
     # ... (clean_invalid_urls_from_config_file, clean_active_invalid_urls, get_local_ip, get_docker_services, extract_ports sono invariati) ...
     def clean_invalid_urls_from_config_file(self): # Rinominata per chiarezza
@@ -250,7 +563,7 @@ class UniversalTunnelManager:
                 extracted_ports.add(int(port))
         return sorted(list(extracted_ports))
 
-    def start_tunnel_for_service(self, service_name, port, duration_hours=None): # Aggiunto duration_hours
+    def start_tunnel_for_service(self, service_name, port, duration_hours=None, tunnel_type='quick', custom_domain=None): # Aggiunto tunnel_type e custom_domain
         """Avvia un tunnel Cloudflare per un servizio specifico con una durata definita."""
         try:
             # Controlla se un tunnel è già attivo e in esecuzione
@@ -273,9 +586,36 @@ class UniversalTunnelManager:
                     print(f"🧹 Pulizia tunnel precedentemente terminato per {service_name} prima del riavvio.")
                     del self.active_tunnels[service_name]
 
+            # Gestione Named Tunnel
+            if tunnel_type == 'named':
+                if custom_domain:
+                    # Aggiorna configurazione ingress per il dominio personalizzato
+                    if self.update_named_tunnel_ingress(custom_domain, port):
+                        # Riavvia il Named Tunnel per applicare le modifiche
+                        if self.restart_named_tunnel():
+                            # I Named Tunnels non scadono come i Quick Tunnels
+                            self.active_tunnels[service_name] = {
+                                'process': None,  # Named tunnel gestito da systemd
+                                'url': f"https://{custom_domain}",
+                                'port': port,
+                                'local_url': f"http://{self.local_ip}:{port}",
+                                'start_time': time.time(),
+                                'expiration_time': None,  # Named Tunnels non scadono
+                                'tunnel_type': 'named',
+                                'custom_domain': custom_domain
+                            }
+                            self.save_config()
+                            return True, f"Named Tunnel configurato per {service_name} su {custom_domain}"
+                        else:
+                            return False, "Errore nel riavvio del Named Tunnel"
+                    else:
+                        return False, f"Errore nell'aggiornamento configurazione per {custom_domain}"
+                else:
+                    return False, "Dominio personalizzato richiesto per Named Tunnel"
 
+            # Gestione Quick Tunnel (comportamento esistente)
             url_to_tunnel = f"http://{self.local_ip}:{port}"
-            print(f"🚀 Avvio tunnel per {service_name} verso {url_to_tunnel}")
+            print(f"🚀 Avvio Quick Tunnel per {service_name} verso {url_to_tunnel}")
             
             cmd = [
                 "cloudflared", "tunnel",
@@ -305,10 +645,11 @@ class UniversalTunnelManager:
                 'port': port,
                 'local_url': url_to_tunnel,
                 'start_time': start_time,
-                'expiration_time': expiration_time # Memorizza il timestamp di scadenza
+                'expiration_time': expiration_time, # Memorizza il timestamp di scadenza
+                'tunnel_type': 'quick'  # Indica che è un Quick Tunnel
             }
             
-            print(f"⏱️  Tunnel per {service_name} scadrà il: {datetime.fromtimestamp(expiration_time).strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"⏱️  Quick Tunnel per {service_name} scadrà il: {datetime.fromtimestamp(expiration_time).strftime('%Y-%m-%d %H:%M:%S')}")
 
             threading.Thread(
                 target=self.capture_tunnel_url,
@@ -316,7 +657,7 @@ class UniversalTunnelManager:
                 daemon=True
             ).start()
             
-            return True, f"Tentativo di avvio tunnel per {service_name} su porta {port} (scade in {duration_hours} ore)..."
+            return True, f"Tentativo di avvio Quick Tunnel per {service_name} su porta {port} (scade in {duration_hours} ore)..."
         except Exception as e:
             print(f"❌ Errore critico nell'avvio del tunnel per {service_name}: {e}")
             if service_name in self.active_tunnels:
@@ -444,15 +785,22 @@ class UniversalTunnelManager:
         for name, info in list(self.active_tunnels.items()): # list() per iterare su una copia
             is_running = False
             process_status = "Non attivo"
+            tunnel_type = info.get('tunnel_type', 'quick')
             
-            if info.get('process'):
-                if info['process'].poll() is None:
-                    process_status = "In esecuzione"
-                    is_running = True
-                else:
-                    process_status = f"Terminato (codice: {info['process'].returncode})"
-                    # Se il processo è terminato ma il record esiste ancora, consideralo non attivo qui
-                    # La pulizia effettiva avverrà tramite check_expired o stop manuale
+            # Gestione stato per Named Tunnels
+            if tunnel_type == 'named':
+                # Per Named Tunnels, verifichiamo lo stato del servizio systemd
+                named_status = self.get_named_tunnel_status()
+                is_running = named_status['is_active']
+                process_status = "Named Tunnel attivo" if is_running else "Named Tunnel inattivo"
+            else:
+                # Gestione stato per Quick Tunnels (comportamento esistente)
+                if info.get('process'):
+                    if info['process'].poll() is None:
+                        process_status = "Quick Tunnel in esecuzione"
+                        is_running = True
+                    else:
+                        process_status = f"Quick Tunnel terminato (codice: {info['process'].returncode})"
             
             # Se il tunnel non è in esecuzione, non ha senso parlare di scadenza attiva
             expiration_timestamp = info.get('expiration_time') if is_running else None
@@ -461,24 +809,6 @@ class UniversalTunnelManager:
                 time_remaining_seconds = expiration_timestamp - current_time
                 if time_remaining_seconds < 0: # Se è scaduto ma non ancora pulito dal checker
                     time_remaining_seconds = 0 
-                    # Potrebbe essere stato fermato dal checker tra questo calcolo e il prossimo ciclo
-                    # La visualizzazione mostrerà "scaduto" o 0s rimanenti.
-            
-            # Non includere tunnel che non hanno un processo o sono terminati
-            # O meglio, includili ma segnala il loro stato.
-            # Se un tunnel è in self.active_tunnels ma il processo è None o terminato,
-            # è uno stato transitorio o un residuo.
-            
-            # La logica in get_docker_services già aggiorna 'tunnel_active' e 'expiration_time'
-            # basandosi sullo stato corrente, qui arricchiamo per i tunnel *effettivamente gestiti*
-            
-            # Se il tunnel non è più in esecuzione, non dovrebbe avere un URL attivo o scadenza rilevante
-            if not is_running:
-                # Potremmo voler rimuovere il tunnel da active_tunnels se il processo è morto
-                # ma questo è gestito da check_expired_tunnels_periodically o da stop_tunnel
-                # Per ora, mostriamo lo stato come non in esecuzione
-                pass
-
 
             active_tunnels_details.append({
                 'service_name': name,
@@ -489,15 +819,23 @@ class UniversalTunnelManager:
                 'is_running': is_running,
                 'start_time': info.get('start_time') if is_running else None,
                 'expiration_time': expiration_timestamp, # Timestamp UNIX
-                'time_remaining_seconds': time_remaining_seconds if expiration_timestamp else None
+                'time_remaining_seconds': time_remaining_seconds if expiration_timestamp else None,
+                'tunnel_type': tunnel_type,
+                'custom_domain': info.get('custom_domain')
             })
         
+        global sudo_password
         return {
             'services': self.get_docker_services(), # Questa ora include info di scadenza parziali
             'active_tunnels': active_tunnels_details,
             'active_tunnels_count': len([t for t in active_tunnels_details if t['is_running']]),
             'local_ip': self.local_ip,
-            'default_tunnel_duration_hours': DEFAULT_TUNNEL_DURATION_HOURS
+            'default_tunnel_duration_hours': DEFAULT_TUNNEL_DURATION_HOURS,
+            'named_tunnel_config': self.named_tunnel_config,
+            'available_domains': self.get_available_named_domains(),
+            'named_tunnel_status': self.get_named_tunnel_status(),
+            'sudo_available': sudo_password is not None,
+            'admin_required': True  # Named Tunnels richiedono sempre privilegi admin
         }
 
     def check_expired_tunnels_periodically(self):
@@ -569,6 +907,8 @@ def api_start_tunnel():
         service_name = data.get('service_name')
         port_str = data.get('port')
         duration_hours_str = data.get('duration_hours') # Nuovo parametro
+        tunnel_type = data.get('tunnel_type', 'quick')  # 'quick' o 'named'
+        custom_domain = data.get('custom_domain')  # Per Named Tunnels
         
         if not service_name or not port_str:
             return jsonify({'success': False, 'message': 'Parametri mancanti: service_name e port sono richiesti'}), 400
@@ -579,6 +919,10 @@ def api_start_tunnel():
                 raise ValueError("Porta non valida")
         except ValueError:
             return jsonify({'success': False, 'message': f"Porta non valida: '{port_str}'."}), 400
+
+        # Validazione per Named Tunnels
+        if tunnel_type == 'named' and not custom_domain:
+            return jsonify({'success': False, 'message': 'Dominio personalizzato richiesto per Named Tunnel'}), 400
 
         duration_hours = None
         if duration_hours_str:
@@ -591,7 +935,9 @@ def api_start_tunnel():
         else:
             duration_hours = DEFAULT_TUNNEL_DURATION_HOURS # Usa il default se non specificato
             
-        success, message = tunnel_manager.start_tunnel_for_service(service_name, port, duration_hours)
+        success, message = tunnel_manager.start_tunnel_for_service(
+            service_name, port, duration_hours, tunnel_type, custom_domain
+        )
         status_code = 200 if success else 500
         if not success and ("già attivo" in message or "aggiornata" in message):
              status_code = 200 # Se è già attivo e abbiamo aggiornato la scadenza, è un successo
@@ -602,8 +948,6 @@ def api_start_tunnel():
     except Exception as e:
         print(f"Errore imprevisto in api_start_tunnel: {e}")
         return jsonify({'success': False, 'message': f'Errore server: {str(e)}'}), 500
-
-# ... (api_stop_tunnel, api_stop_all, api_debug sono per lo più invariati, ma passano 'reason') ...
 
 @app.route('/api/stop-tunnel', methods=['POST'])
 def api_stop_tunnel():
@@ -697,6 +1041,105 @@ def api_debug():
         print(f"Errore in api_debug: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/named-tunnels/domains', methods=['GET'])
+def api_get_named_domains():
+    """API per ottenere i domini disponibili per Named Tunnels"""
+    try:
+        domains = tunnel_manager.get_available_named_domains()
+        return jsonify({
+            'success': True, 
+            'domains': domains,
+            'named_tunnel_status': tunnel_manager.get_named_tunnel_status()
+        })
+    except Exception as e:
+        print(f"Errore in api_get_named_domains: {e}")
+        return jsonify({'success': False, 'message': f'Errore server: {str(e)}'}), 500
+
+@app.route('/api/named-tunnels/restart', methods=['POST'])
+def api_restart_named_tunnel():
+    """API per riavviare il Named Tunnel"""
+    try:
+        success = tunnel_manager.restart_named_tunnel()
+        return jsonify({
+            'success': success, 
+            'message': 'Named Tunnel riavviato con successo' if success else 'Errore nel riavvio Named Tunnel'
+        })
+    except Exception as e:
+        print(f"Errore in api_restart_named_tunnel: {e}")
+        return jsonify({'success': False, 'message': f'Errore server: {str(e)}'}), 500
+
+@app.route('/api/named-tunnels/status', methods=['GET'])
+def api_named_tunnel_status():
+    """API per ottenere lo stato del Named Tunnel"""
+    try:
+        status = tunnel_manager.get_named_tunnel_status()
+        return jsonify({'success': True, 'status': status})
+    except Exception as e:
+        print(f"Errore in api_named_tunnel_status: {e}")
+        return jsonify({'success': False, 'message': f'Errore server: {str(e)}'}), 500
+
+@app.route('/api/named-tunnels/update-ingress', methods=['POST'])
+def api_update_named_tunnel_ingress():
+    """API per aggiornare la configurazione ingress di un Named Tunnel"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': 'Richiesta JSON non valida'}), 400
+            
+        hostname = data.get('hostname')
+        port = data.get('port')
+        
+        if not hostname or not port:
+            return jsonify({'success': False, 'message': 'Parametri mancanti: hostname e port richiesti'}), 400
+        
+        try:
+            port = int(port)
+            if not (0 < port < 65536):
+                raise ValueError("Porta non valida")
+        except ValueError:
+            return jsonify({'success': False, 'message': f"Porta non valida: {port}"}), 400
+        
+        success = tunnel_manager.update_named_tunnel_ingress(hostname, port)
+        return jsonify({
+            'success': success,
+            'message': f'Configurazione aggiornata per {hostname}' if success else 'Errore nell\'aggiornamento'
+        })
+    except Exception as e:
+        print(f"Errore in api_update_named_tunnel_ingress: {e}")
+        return jsonify({'success': False, 'message': f'Errore server: {str(e)}'}), 500
+        
+
+@app.route('/api/set-sudo-password', methods=['POST'])
+def api_set_sudo_password():
+    """API per impostare la password sudo"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': 'Richiesta JSON non valida'}), 400
+            
+        password = data.get('password')
+        if not password:
+            return jsonify({'success': False, 'message': 'Password richiesta'}), 400
+        
+        # Test della password con un comando semplice
+        test_result, error = run_sudo_command(["sudo", "echo", "test"], password)
+        if error:
+            return jsonify({'success': False, 'message': 'Password sudo non valida'}), 401
+        
+        set_sudo_password(password)
+        return jsonify({'success': True, 'message': 'Password sudo impostata con successo'})
+    except Exception as e:
+        print(f"Errore in api_set_sudo_password: {e}")
+        return jsonify({'success': False, 'message': f'Errore server: {str(e)}'}), 500
+
+@app.route('/api/sudo-status', methods=['GET'])
+def api_sudo_status():
+    """API per verificare se la password sudo è impostata"""
+    global sudo_password
+    return jsonify({
+        'sudo_available': sudo_password is not None,
+        'message': 'Password sudo configurata' if sudo_password else 'Password sudo richiesta'
+    })
 
 if __name__ == '__main__':
     print("🚀 Avvio Universal Cloudflare Tunnel Manager con Scadenza")
@@ -706,12 +1149,14 @@ if __name__ == '__main__':
     print(f"🏠 Directory dati: {tunnel_manager.data_dir}")
     print(f"⚙️ File configurazione: {tunnel_manager.config_file}")
     print(f"⏱️ Durata tunnel default: {DEFAULT_TUNNEL_DURATION_HOURS} ore")
-    print(f"🖥️  Interfaccia Web disponibile su: http://{host_ip_for_display}:5001")
+    port = int(os.environ.get('FLASK_PORT', 5001))
+    print(f"🖥️  Interfaccia Web disponibile su: http://{host_ip_for_display}:{port}")
     
     # In sviluppo con thread, use_reloader=False può essere più stabile.
     # Per produzione, debug=False.
     try:
-        app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False) # use_reloader=False è importante con thread e atexit
+        port = int(os.environ.get('FLASK_PORT', 5001))
+        app.run(host='0.0.0.0', port=port, debug=True, use_reloader=False) # use_reloader=False è importante con thread e atexit
     except KeyboardInterrupt:
         print("\n⌨️ Interruzione da tastiera ricevuta. Arresto in corso...")
     finally:

@@ -1,0 +1,10 @@
+tunnel: 8b45ba1a-6b30-4783-a170-cb53429d14e9
+credentials-file: /home/nugh75/.cloudflared/8b45ba1a-6b30-4783-a170-cb53429d14e9.json
+ingress:
+- hostname: langflow.ai4educ.org
+  service: http://192.168.129.14:7860
+- hostname: openwebui.ai4educ.org
+  service: http://192.168.129.14:3000
+- hostname: ssh.ai4educ.org
+  service: ssh://localhost:22
+- service: http_status:404
