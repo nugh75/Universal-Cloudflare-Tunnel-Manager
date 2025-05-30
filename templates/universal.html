@@ -501,6 +501,22 @@
             }
         }
 
+        // Verifica lo stato sudo e richiede la password se necessario
+        function checkSudoStatusAndPrompt() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.admin_required && !data.sudo_available) {
+                        // Mostra il modal per richiedere la password
+                        $('#sudo-modal').modal('show');
+                    }
+                })
+                .catch(error => {
+                    console.error('Errore nel controllo stato sudo:', error);
+                });
+        }
+        }
+
         // Carica domini disponibili per Named Tunnels
         function loadAvailableDomains(serviceName) {
             $.ajax({

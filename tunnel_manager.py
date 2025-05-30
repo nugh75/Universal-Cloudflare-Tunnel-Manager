@@ -330,6 +330,24 @@ class UniversalTunnelManager:
                     'details': 'Password sudo richiesta per verificare lo stato'
                 }
             
+            # Prima verifica se cloudflared è installato
+            check_result, check_error = run_sudo_command(["which", "cloudflared"])
+            if check_error or not check_result or check_result.returncode != 0:
+                return {
+                    'is_active': False,
+                    'status': 'not_installed',
+                    'details': 'cloudflared non è installato nel sistema'
+                }
+            
+            # Controlla se il servizio systemd esiste
+            exists_result, exists_error = run_sudo_command(["sudo", "systemctl", "list-unit-files", "cloudflared.service"])
+            if exists_error or not exists_result or "cloudflared.service" not in exists_result.stdout:
+                return {
+                    'is_active': False,
+                    'status': 'service_not_configured',
+                    'details': 'Servizio cloudflared non configurato in systemd'
+                }
+            
             # Controlla lo stato del servizio systemd
             status_result, error = run_sudo_command(["sudo", "systemctl", "is-active", "cloudflared"])
             if error:
@@ -368,6 +386,12 @@ class UniversalTunnelManager:
         """Rileva automaticamente i Named Tunnels attivi e li aggiunge ai tunnel attivi"""
         try:
             named_status = self.get_named_tunnel_status()
+            
+            # Verifica se il servizio è disponibile e configurato
+            if named_status.get('status') in ['not_installed', 'service_not_configured', 'auth_required']:
+                print(f"ℹ️ Named Tunnel non disponibile: {named_status.get('details')}")
+                return
+            
             if named_status.get('is_active', False):
                 print("🔍 Named Tunnel attivo rilevato, mappatura servizi...")
                 
